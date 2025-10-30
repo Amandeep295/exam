@@ -1,413 +1,726 @@
-Q.2_Build_a_multi_layer_perceptron_for_a_classification_problem_Experiment_with_different_activation_functions_and_layer_configurations.ipynb
-A#For Iris Dataset
+Q .6 )    YOLO MODEL
+
+!pip install opencv-python ultralytics ipython
+
+import cv2
+from ultralytics import YOLO
+from IPython.display import display, Image
+import time
+
+#load the yolo model. below is the lightweight node version.
+model=YOLO('yolov8n.pt')
+
+try:
+    #open a connection to default camera
+    cap=cv2.VideoCapture(0)
+    if not cap.isOpened():
+        raise IOError("Cannot open webcam. Please check if it is connected and not in use by other application.")
+
+    #Set a preffered camera
+    cap.set(3, 1280) #width
+    cap.set(4,720)  #height
+
+except Exception as e:
+    print(f'Error: {e}')
+    exit()
+
+
+all_detected_objects=set()
+print("Starting live detection... Press 'q' in the display window to quit")
+
+#Main loop for detection
+while True:
+    #Read a frame from the camera
+    success, frame=cap.read()
+    if not success:
+        print("Failed to grab a frame. Exiting...")
+        break
+    #perfrom object detection on the current frame
+    results=model(frame)
+
+    #iterated over the detected objects in the current frame
+    for result in results:
+        boxes=result.boxes
+        for box in boxes:
+            #get class id and name
+            class_id=int(box.cls[0])
+            class_name=model.names[class_id]
+            #add the detected class naem to our master set
+            all_detected_objects.add(class_name)
+            #visualization
+            #get confidence score and coordinates
+            confidence=float(box.conf[0])
+            x1, y1, x2, y2= map(int,box.xyxy[0])
+            #draw the bounding box on the frame
+            cv2.rectangle(frame,(x1,y1),(x2,y2),(0,255,0),2)
+            #create the label text
+            label=f'{class_name} {confidence:.2f}'
+            #put the label on the bounding box
+            cv2.putText(frame, label, (x1,y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0),2)
+
+        #display the resulting frame in a window called live object detection
+        cv2.imshow('Live Object Detection', frame)
+        #if q is pressed, break the loop. cv2 waits 1ms for key event
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+print("\n Detection stopped by user.")
+
+#release the camera and destroy all OpenCV windows
+cap.release()
+cv2.destroyAllWindows()
+
+#print the final list of all unique objects detected during the session
+if all_detected_objects:
+    print("\n--- Summary of all unique objects detected---")
+    #Sort all the list alphabetically for clean output
+    for i,obj in enumerate(sorted(list(all_detected_objects)),1):
+        print(f"{i}.{obj}")
+    print('----------------------------------------------------')
+else:
+    print("\nNo objects were detected during the session")
+
+
+
+
+Q.7) AUTOENCODERS
+
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from tensorflow.keras.utils import to_categorical
+from keras.datasets import mnist
+from keras.models import Model
+from keras.layers import Input, Dense
+from keras.optimizers import Adam
+from sklearn.manifold import TSNE
+
+(x_train,y_train),(x_test,y_test)=mnist.load_data()
+x_train=x_train.astype('float32')/255
+x_test=x_test.astype('float32')/255
+x_train=x_train.reshape((len(x_train),np.prod(x_train.shape[1:])))
+x_test=x_test.reshape((len(x_test),np.prod(x_test.shape[1:])))
+
+#build autoencoder model
+#this is size of encoded representations
+encoding_dim=32
+#This is input placeholder
+input_img=Input(shape=(784,))
+#'encoded' representation of the input
+encoded=Dense(encoding_dim,activation='relu')(input_img)
+
+#decoded is the lossy reconstruction of the input
+decoded=Dense(784,activation='sigmoid')(encoded)
+#this model maps an input to its representations
+autoencoder=Model(input_img,decoded)
+#this model maps an input to its encoded representation
+encoder=Model(input_img, decoded)
+
+#creating a placeholder
+encoded_input=Input(shape=(encoding_dim,))
+#retrieve last layer of autoencoder model
+decoder_layer=autoencoder.layers[-1]
+#Create the decoder model
+decoder=Model(encoded_input, decoder_layer(encoded_input))
+
+#compile the autoencoder
+autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
+
+#Train the autoencoder
+
+history=autoencoder.fit(x_train, x_train,
+                       epochs=50,
+                       batch_size=256,
+                       shuffle=True,
+                       validation_data=(x_test,x_test))
+
+decoded_imgs=autoencoder.predict(x_test)
+n=10 #how many digits you want to display
+plt.figure(figsize=(20,4))
+for i in range(n):
+    ax=plt.subplot(2,n,i+1)
+    plt.imshow(x_test[i].reshape(28,28))
+    plt.gray()
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    if i==0:
+        ax.set_title("Original Images", loc='left')
+    ax=plt.subplot(2,n,i+1+n)
+    plt.imshow(decoded_imgs[i].reshape(28,28))
+    plt.gray()
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    if i==0:
+        ax.set_title("Reconstructed Images", loc='left')
+plt.show()
+
+#plotting and training the validation loss
+plt.figure(figsize=(10,5))
+plt.plot(history.history['loss'],label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title('Model Loss during training')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+#visualize the latent space using tsne
+
+encoded_imgs=encoder.predict(x_test)
+#latent space to 2D
+tsne=TSNE(n_components=2,random_state=42)
+encoded_imgs_2d=tsne.fit_transform(encoded_imgs)
+
+plt.figure(figsize=(12,10))
+plt.scatter(encoded_imgs_2d[:,0], encoded_imgs_2d[:,1], c=y_test, cmap='jet', s=10)
+plt.colorbar()
+plt.title('t-SNE visualization of the MNIST latent space')
+plt.xlabel('t-SNE dimension 1')
+plt.ylabel('t-SNE dimension 2')
+plt.show()
+
+
+
+
+Q.8 ) RNN FOR SEQUENCE PREDICTION
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.optimizers import Adam
-from sklearn.metrics import classification_report, confusion_matrix
-# Load the Iris dataset
-iris = load_iris()
-X = iris.data  # shape: (150, 4)
-y = iris.target  # shape: (150,)
+from tensorflow.keras.layers import Dense, LSTM, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+import yfinance as yf
 
-# Normalize the dataset
-scaler = StandardScaler()
-X = scaler.fit_transform(X)
+stock_data=yf.download('AAPL', start='2012-01-01',end='2022-01-01')
+df=stock_data[['Close']]
 
-# One hot encode the labels
-y = to_categorical(y, num_classes=3)
+df['Close']=df['Close'].rolling(window=5).mean()
+df.dropna(inplace=True)
 
-# Split into train and test
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-# Build MLP model function
-def build_mlp(activation='relu', layer_config=[64, 32]):
-    model = Sequential()
-    model.add(Dense(layer_config[0], input_shape=(4,), activation=activation))
-    for units in layer_config[1:]:
-        model.add(Dense(units, activation=activation))
-    model.add(Dense(3, activation='softmax'))  # 3 classes for Iris
-    model.compile(optimizer=Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
-    return model
-# Experiment with different configurations
-activations = ['relu', 'tanh', 'sigmoid']
-layer_configs = [[64, 32], [128, 64, 32], [256, 128, 64, 32]]
+scaler=MinMaxScaler(feature_range=(0,1))
+scaled_data=scaler.fit_transform(df)
 
-results = {}
+def create_dataset(data,time_step=1):
+  X,Y=[],[]
+  for i in range(len(data)-time_step-1):
+    X.append(data[i:(i+time_step),0])
+    Y.append(data[i+time_step,0])
+  return np.array(X), np.array(Y)
 
-for activation in activations:
-    for config in layer_configs:
-        model = build_mlp(activation=activation, layer_config=config)
-        history = model.fit(X_train, y_train, epochs=50, batch_size=8, validation_split=0.2, verbose=0)
-        _, accuracy = model.evaluate(X_test, y_test, verbose=0)
-        results[(activation, tuple(config))] = accuracy
-        print(f'Activation: {activation}, Layer Config: {config}, Accuracy: {accuracy:.4f}')
-# Visualize results
-plt.figure(figsize=(12, 6))
-for key, value in results.items():
-    plt.bar(str(key), value)
-plt.xticks(rotation=90)
-plt.xlabel('Activation and layer configuration')
-plt.ylabel('Accuracy')
-plt.title('Accuracy for Different Activation Functions and Layer Configurations (Iris Dataset)')
-plt.tight_layout()
+time_step=60
+X,Y=create_dataset(scaled_data,time_step)
+
+train_size=int(len(X) * 0.8)
+X_train,X_test=X[:train_size],X[train_size:]
+Y_train, Y_test=Y[:train_size],Y[train_size:]
+
+X_train=X_train.reshape(X_train.shape[0], X_train.shape[1],1)
+X_test=X_test.reshape(X_test.shape[0],X_test.shape[1],1)
+
+#building and training lstm model
+model=Sequential()
+model.add(LSTM(50,return_sequences=True, input_shape=(time_step,1)))
+model.add(Dropout(0.2))
+model.add(LSTM(50,return_sequences=True))
+model.add(Dropout(0.2))
+model.add(Dense(25))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+#add early stopping
+early_stop=EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+history=model.fit(X_train,Y_train,epochs=100,batch_size=32, validation_data=(X_test,Y_test),callbacks=[early_stop], verbose=1)
+
+train_predict=model.predict(X_train)
+test_predict=model.predict(X_test)
+
+#inverse transformation to get actual values
+train_predict=scaler.inverse_transform(train_predict[:,:,0])
+test_predict=scaler.inverse_transform(test_predict[:,:,0])
+Y_train=scaler.inverse_transform(Y_train.reshape(-1,1))
+Y_test=scaler.inverse_transform(Y_test.reshape(-1,1))
+
+#calculate rmse
+train_rmse=np.sqrt(mean_squared_error(Y_train[0], train_predict[:,0]))
+test_rmse=np.sqrt(mean_squared_error(Y_test[0], test_predict[:,0]))
+print(f'Train RMSE: {train_rmse}')
+print(f'Test RMSE: {test_rmse}')
+
+#future predictions
+n_future=100
+last_sequence=scaled_data[-time_step:]
+predictions=[]
+
+for i in range(n_future):
+  next_prediction = model.predict(last_sequence.reshape(1, time_step, 1), verbose=0)  # disable progress bar
+  next_value = next_prediction[0, 0, 0]  # scalar value
+  predictions.append(next_value)
+
+    # Reshape to (1, 1) to match the shape of each step in last_sequence
+  next_value_reshaped = np.array([[next_value]])
+
+    # Now last_sequence[1:] is shape (time_step - 1, 1), and next_value_reshaped is (1, 1)
+  last_sequence = np.concatenate((last_sequence[1:], next_value_reshaped), axis=0)
+
+predictions=np.array(predictions)
+future_predictions=scaler.inverse_transform(predictions.reshape(-1,1))
+
+#Visualizations
+#Lstm predictions vs actual values
+plt.figure(figsize=(12,6))
+plt.plot(df.index,df['Close'], label='Actual', color='blue')
+plt.plot(df.index[time_step:time_step +len(train_predict)], train_predict, color='green', label='Train Predictions')
+
+plt.plot(df.index[-len(test_predict):], test_predict, color='red', label='Test Predictions')
+
+#Plot the future predictions
+future_dates=pd.date_range(df.index[-1], periods=n_future, freq='D')
+plt.plot(future_dates, future_predictions, color='orange', label='Future Predictions')
+
+plt.title('LSTM predictions vs actual')
+plt.xlabel('time')
+plt.ylabel('Close Price')
+plt.legend()
 plt.show()
 
-# Classification report for the best model
-best_model_key = max(results, key=results.get)
-best_activation, best_config = best_model_key
-best_model = build_mlp(activation=best_activation, layer_config=list(best_config))
-best_model.fit(X_train, y_train, epochs=50, batch_size=8, validation_split=0.2, verbose=0)
-
-y_pred = np.argmax(best_model.predict(X_test), axis=-1)
-y_test_labels = np.argmax(y_test, axis=-1)
-
-print("\nClassification Report:\n")
-print(classification_report(y_test_labels, y_pred, target_names=iris.target_names))
 
 
-#For MNIST Dataset
+
+Q. 9) RNN FOR SEQUENCE PREDICTION (LSTM)
+
+# LSTM Implementation
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from tensorflow.keras.datasets import mnist
-from tensorflow.keras.utils import to_categorical
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten
-from tensorflow.keras.optimizers import Adam
-from sklearn.metrics import classification_report, confusion_matrix
-#Load the MNIST Dataset
-(X_train, y_train), (X_test, y_test) = mnist.load_data()
-#Normalize the dataset (INPUT)
-X_train = X_train.astype('float32') / 255.0 #(255 - image scale ,gray scale)
-X_test = X_test.astype('float32') / 255.0
-#One hot encode the labels (OUTPUT)
-y_train = to_categorical(y_train, num_classes=10) # Converting Class labels into one hot encode format
-y_test = to_categorical(y_test, num_classes=10)
-#Build a Multi-layer Perceptron model
-def build_mlp(activation = 'relu', layer_config=[128,64]): #2 layer
-    model = Sequential() # Method or function to create a squential network
-    model.add(Flatten(input_shape=(28,28)))
-    for units in layer_config:
-        model.add(Dense(units, activation=activation))
-    model.add(Dense(10, activation='softmax')) # softmax- individual to probabilities
-    model.compile(optimizer=Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
-    return model
-#Experiment with different configurations
-activation = ['relu','tanh','sigmoid']
-layer_configs = [[128,64],[256,128,64],[512,256,128,64]]
+from tensorflow.keras.layers import Dense, LSTM, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+import yfinance as yf
 
-results ={}
-for activation in activation:
-    for config in layer_configs:
-        model = build_mlp(activation=activation, layer_config = config)
-        history = model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.2, verbose=0)
-        _, accuracy = model.evaluate(X_test, y_test, verbose=0)
-        results[(activation, tuple(config))] = accuracy
-        print(f'Activation: {activation}, Layer Config: {config}, Accuracy: {accuracy:.4f}')
-#Visualize the results
-plt.figure(figsize=(12,8))
-for key,value in results.items():
-    plt.bar(str(key), value)
-plt.xticks(rotation=90)
-plt.xlabel('Activation and layer configuration')
-plt.ylabel('Accuracy')
-plt.title('Accuracy for Differnent activation function and layer configurations')
-plt.show()
+# 1. Load the Dataset
+stock_data = yf.download('AAPL', start='2012-01-01', end='2022-01-01')
+df = stock_data[['Close']]
 
-#Display classification report for the best model
-best_model_key = max(results, key=results.get)
-best_activation, best_config = best_model_key
-best_model = build_mlp(activation=best_activation, layer_config=best_config)
-best_model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.2, verbose=0)
-y_pred = np.argmax(best_model.predict(X_test), axis=-1)
-y_test_labels = np.argmax(y_test, axis=-1)
+# Apply a moving average to smooth the data
+df['Close'] = df['Close'].rolling(window=5).mean()
+df.dropna(inplace=True)  # Drop NaN values created by the moving average
 
-#Display some test image with their predicated labels
-plt.figure(figsize=(15,15))
-for i in range(25):
-    plt.subplot(5,5,i+1)
-    plt.imshow(X_test[i], cmap='gray')
-    plt.title(f'Predicted: {y_pred[i]}, True: {y_test_labels[i]}')
-    plt.axis('off')
-plt.show()
-Q.33_Create_a_CNN_for_image_classification_using_a_popular_dataset_like_MNIST_or_CIFAR_10_.ipynb
-# Import required libraries
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from tensorflow import keras
-from tensorflow.keras import layers, models
-from sklearn.metrics import classification_report, confusion_matrix
-# 1. Dataset Preparation
-# ----------------------
+# 2. Data Preprocessing
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(df)
+# Create dataset for LSTM
+def create_dataset(data, time_step=1):
+    X, Y = [], []
+    for i in range(len(data)-time_step-1):
+        X.append(data[i:(i+time_step), 0])
+        Y.append(data[i + time_step, 0])
+    return np.array(X), np.array(Y)
+    
+# Prepare the dataset with a time step of 60 (60 days of data)
+time_step = 60
+X, Y = create_dataset(scaled_data, time_step)
 
-# Load the MNIST dataset (28x28 grayscale images of handwritten digits)
-(x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
+# Split the data into training and test sets
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+Y_train, Y_test = Y[:train_size], Y[train_size:]
 
-# Normalize the image data to range [0, 1]
-x_train = x_train.astype("float32") / 255.0
-x_test = x_test.astype("float32") / 255.0
+# Reshape the input to be [samples, time steps, features] for LSTM
+X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
 
-# Reshape to include channel dimension (28, 28, 1)
-x_train = x_train[..., np.newaxis]
-x_test = x_test[..., np.newaxis]
+# 3. Build and Train the LSTM Model
+model = Sequential()
+model.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
+model.add(Dropout(0.2))  # Adding dropout for regularization
+model.add(LSTM(50, return_sequences=False))
+model.add(Dropout(0.2))  # Adding another dropout layer
+model.add(Dense(25))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mean_squared_error')
 
-# Convert labels to one-hot encoded format
-num_classes = 10
-y_train_cat = keras.utils.to_categorical(y_train, num_classes)
-y_test_cat = keras.utils.to_categorical(y_test, num_classes)
-
-# Split training data into train and validation sets
-from sklearn.model_selection import train_test_split
-x_train, x_val, y_train_cat, y_val_cat = train_test_split(x_train, y_train_cat, test_size=0.1, random_state=42)
-# 2. Define CNN Model Architecture
-# --------------------------------
-model = models.Sequential()
-
-# Convolutional Layer 1: Extract Low-Level features
-model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=(28, 28, 1)))
-model.add(layers.MaxPooling2D((2,2)))   # Reduce spatial dimensions
-
-# Convolutional Layer 2
-model.add(layers.Conv2D(64, (3, 3), activation='relu'))   # 64 means you're extracting high level features
-model.add(layers.MaxPooling2D((2, 2)))
-
-# Flatten the output and feed into Fully Connected Layers
-model.add(layers.Flatten())
-model.add(layers.Dense(128, activation='relu'))   # Fully connected layer
-model.add(layers.Dropout(0.5))  # Dropout for regularization
-
-# Output layer with Softmax for multi-class classification
-model.add(layers.Dense(num_classes, activation='softmax'))
-
-# Display the model summary
-model.summary()
-# 3. Compilation
-# --------------
-model.compile(optimizer='adam',
-             loss='categorical_crossentropy',   # we're using this loss function becasue it's multiclass classification
-             metrics=['accuracy'])
-# 4. Training the Model
-# ---------------------
-
-# Define EarlyStopping to prevent overfitting
-early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+# Add early stopping
+early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
 
 # Train the model
-history = model.fit(
-    x_train, y_train_cat,
-    epochs=15,
-    batch_size=128,
-    validation_data=(x_val, y_val_cat),
-    callbacks=[early_stop]
-)
-# 5. Testing and Evaluation
-# --------------------------
-test_loss, test_acc = model.evaluate(x_test, y_test_cat, verbose=2)
-print(f"\nTest accuracy: {test_acc:.4f}, Test loss: {test_loss:.4f}")
+history = model.fit(X_train, Y_train, epochs=100, batch_size=32, validation_data=(X_test, Y_test), callbacks=[early_stop], verbose=1)
 
-# Predict on some test images
-predictions = model.predict(x_test)
-y_pred = np.argmax(predictions, axis=1)
+# 4. Prediction and Evaluation
+train_predict = model.predict(X_train)
+test_predict = model.predict(X_test)
 
-# Display a few predictions
-plt.figure(figsize=(10, 4))
-for i in range(5):
-    plt.subplot(1, 5, i+1)
-    plt.imshow(x_test[i].reshape(28, 28), cmap='gray')
-    plt.title(f"Pred: {y_pred[i]}\nTrue: {y_test[i]}")
-    plt.axis("off")
-plt.tight_layout()
-plt.show()
-# 6. Performance Visualisation
-# ----------------------------
+# Inverse transform to get the actual values
+train_predict = scaler.inverse_transform(train_predict)
+test_predict = scaler.inverse_transform(test_predict)
+Y_train = scaler.inverse_transform([Y_train])
+Y_test = scaler.inverse_transform([Y_test])
 
-# Plot training & validation accuracy/loss
-def plot_metrics(history):
-    plt.figure(figsize=(12, 5))
+# Calculate RMSE
+train_rmse = np.sqrt(mean_squared_error(Y_train[0], train_predict[:,0]))
+test_rmse = np.sqrt(mean_squared_error(Y_test[0], test_predict[:,0]))
 
-    # Accuracy Plot
-    plt.subplot(1, 2, 1)
-    plt.plot(history.history['accuracy'], label='Train Acc')
-    plt.plot(history.history['val_accuracy'], label='Val Acc')
-    plt.title('Accuracy over Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
+print(f'Train RMSE: {train_rmse}')
+print(f'Test RMSE: {test_rmse}')
 
-    # Loss Plot
-    plt.subplot(1, 2, 2)
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Val Loss')
-    plt.title('Loss over Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
+# 5. Future Predictions using LSTM
+n_future = 100  # Predicting 30 days into the future
+last_sequence = scaled_data[-time_step:]
+predictions = []
 
-    plt.tight_layout()
-    plt.show()
+for _ in range(n_future):
+    next_prediction = model.predict(last_sequence.reshape(1, time_step, 1))
+    predictions.append(next_prediction[0, 0])
+    last_sequence = np.append(last_sequence[1:], next_prediction, axis=0)
+predictions = np.array(predictions)
+future_predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
 
-plot_metrics(history)
-# Confusion Matrix and classsification Report
-cm = confusion_matrix(y_test, y_pred)
-plt.figure(figsize=(8, 6))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=range(10), yticklabels=range(10))
-plt.xlabel('Predicted')
-plt.ylabel('True')
-plt.title('Confusion Matrix')
-plt.show()
-Q.4_Sematic_Segmentation_and_Object_Detection_using_FCN_FRCNN_Mask_R_CNN.ipynb
-import torch
-import torchvision
-from torchvision import transforms
-import matplotlib.pyplot as plt
-from PIL import Image
-# Load pre-trained models for segmentation and detection
-fcn_model = torchvision.models.segmentation.fcn_resnet50(pretrained=True)
-fcn_model.eval()
-faster_rcnn_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
-faster_rcnn_model.eval()
-# Function to process and show images with FCN segmentation and Faster-RCNN detection
-def process_image(image, model_fcn, model_frcnn):
-  transform = transforms.Compose([
-      transforms.ToTensor(),   # Convert the image to a PyTorch tensor
-  ])
+# 6. Visualizations
+# LSTM Predictions vs. Actual Values
+plt.figure(figsize=(12,6))
+# Plot the actual data
+plt.plot(df.index, df['Close'], label='Actual', color='blue')
 
-  image_tensor = transform(image)
+# Plot the training predictions
+plt.plot(df.index[time_step:time_step + len(train_predict)], train_predict, color='green', label='Train Predictions')
 
-  # FCN Semantic Segmentation
-  with torch.no_grad():
-    output_fcn = model_fcn(image_tensor.unsqueeze(0))  # Add batch dimension
-    output_fcn_predictions = output_fcn['out'].argmax(1).squeeze().cpu().numpy()
+# Plot the testing predictions
+plt.plot(df.index[-len(test_predict):], test_predict, color='red', label='Test Predictions')
 
-  # Faster R-CNN Object Detection
-  with torch.no_grad():
-    output_frcnn = model_frcnn([image_tensor])
+# Plot the future predictions
+future_dates = pd.date_range(df.index[-1], periods=n_future, freq='D')
+plt.plot(future_dates, future_predictions, color='orange', label='LSTM Future Predictions')
 
-  # Extract boxes and labe;s from Faster R-CNN output
-  boxes = output_frcnn[0]['boxes'].cpu().numpy()
-  labels = output_frcnn[0]['labels'].cpu().numpy()
-
-  # Plot the original image, FCN segmentation output, and Faster R-CNN detections
-  fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-
-  # Original Image
-  ax[0].imshow(image)
-  ax[0].set_title('Original Image')
-  ax[0].axis('off')
-
-  # FCN Segmentation Output
-  ax[1].imshow(output_fcn_predictions)
-  ax[1].set_title('FCN Segmentation Output')
-  ax[1].axis('off')
-
-  # Faster R-CNN Object Detection
-  ax[2].imshow(image)
-  for box in boxes:
-    x_min, y_min, x_max, y_max = box
-    rect = plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, fill=False, color='red', linewidth=2)
-    ax[2].add_patch(rect)
-  ax[2].set_title('Faster R-CNN Object Detection')
-  ax[2].axis('off')
-
-  plt.tight_layout()
-  plt.show()
-# Load your images
-room_image = Image.open('/road.jpg')
-road1_image = Image.open('/road1.jpg')
-road2_image = Image.open('/room.jpeg')
-# Process each image with the models
-process_image(room_image, fcn_model, faster_rcnn_model)
-process_image(road1_image, fcn_model, faster_rcnn_model)
-process_image(road2_image, fcn_model, faster_rcnn_model)
-
-
-Q.5_Transfer_Learning_on_the_suitable_dataset_(Cats_and_Dogs_Dataset).ipynb
-import tensorflow as tf
-import numpy as np
-import matplotlib.pyplot as plt
-import os
-import zipfile
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.applications import VGG16
-#Download and extract dataset
-url = "https://storage.googleapis.com/mledu-datasets/cats_and_dogs_filtered.zip"
-filename = "cats_and_dogs_filtered.zip"
-tf.keras.utils.get_file(filename, url)
-with zipfile.ZipFile("cats_and_dogs_filtered.zip", "r") as zip_ref:
-    zip_ref.extractall()
-#Define data generators
-base_dir = "cats_and_dogs_filtered"
-train_dir = os.path.join(base_dir, "train")
-validation_dir = os.path.join(base_dir, "validation")
-
-train_datagen = ImageDataGenerator(rescale = 1./255,
-                                  rotation_range = 20,
-                                  width_shift_range = 0.2,
-                                  height_shift_range = 0.2,
-                                  shear_range = 0.2,
-                                  zoom_range = 0.2,
-                                  horizontal_flip = True)
-
-validation_datagen = ImageDataGenerator(rescale=1./255)
-
-train_generator = train_datagen.flow_from_directory(validation_dir,
-                                                        target_size=(150, 150),
-                                                        batch_size = 20,
-                                                        class_mode = "binary")
-
-validation_generator = validation_datagen.flow_from_directory(validation_dir,
-                                                        target_size=(150, 150),
-                                                        batch_size = 20,
-                                                        class_mode = "binary")
-#Load pre_trained VGG16 model
-conv_base = VGG16(weights = "imagenet",
-                 include_top = False,
-                 input_shape=(150, 150, 3))
-
-#Freeze convolutional base layers
-conv_base.trainable = False
-#Build model on top of the convolution base
-model = tf.keras.models.Sequential()
-model.add(conv_base)
-model.add(tf.keras.layers.Flatten())
-model.add(tf.keras.layers.Dense(256, activation = "relu"))
-model.add(tf.keras.layers.Dropout(0.5))
-model.add(tf.keras.layers.Dense(1, activation="sigmoid"))
-#Compile Model
-model.compile(loss = "binary_crossentropy",
-             optimizer = tf.keras.optimizers.RMSprop(learning_rate=2e-5),
-             metrics = ["accuracy"])
-
-history = model.fit(train_generator,
-                    steps_per_epoch=100,
-                    epochs=30,
-                    validation_data=validation_generator,
-                    validation_steps=50)
-# Show sample input and its predicted class
-x, y_true = next(validation_generator)
-y_pred = model.predict(x)
-class_names = ['cat', 'dog' ]
-for i in range(len(x)):
-    plt.imshow(x[i])
-    plt.title(f'Predicted class: {class_names[int(round(y_pred[i][0])) ]}, True class: {class_names[int(y_true[i]) ]}')
-    plt.show()
-
-# PLot accuracy and Loss over time
-acc = history. history["accuracy"]
-val_acc = history.history["val_accuracy"]
-loss = history. history["loss"]
-val_loss = history.history["val_loss"]
-
-epochs = range(1, len(acc) + 1)
-
-plt.plot(epochs, acc, "bo", label="Training acc")
-plt.pllt(epochs, val_acc, "b", label="Validation acc")
-plt.title("Trainig and Validation Loss")
 plt.legend()
-
+plt.title('LSTM Predictions vs. Actual')
+plt.xlabel('Time')
+plt.ylabel('Stock Price')
 plt.show()
+
+
+
+
+Q. 10 ) GAN
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import numpy as np
+
+#check if gpu is available
+device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Using device:{device}')
+
+#load mnist dataset and preprocess the data
+transform=transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize([0.5],[0.5])  #normalize images to [-1,1]
+])
+train_dataset=torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=True)
+train_loader=torch.utils.data.DataLoader(train_dataset,batch_size=256, shuffle=True)
+
+#define generator model
+class Generator(nn.Module):
+    def __init__(self):
+        super(Generator, self).__init__()
+        self.model=nn.Sequential(
+            nn.Linear(100,7*7*256),
+            nn.BatchNorm1d(7*7*256),
+            nn.LeakyReLU(0.2),
+            nn.Unflatten(1,(256,7,7)),
+            nn.ConvTranspose2d(256, 128, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(128,64, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(64,1, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.Tanh()
+        )
+    def forward(self,x):
+        return self.model(x)
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.model=nn.Sequential(
+            nn.Conv2d(1,64,kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+            nn.Conv2d(64,128,kernel_size=5,stride=2,padding=2),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+            nn.Flatten(),
+            nn.Linear(128*7*7,1),
+            nn.Sigmoid()
+        )
+    def forward(self,x):
+        return self.model(x)
+
+#initialize models and move them to GPU if available
+generator=Generator().to(device)
+discriminator=Discriminator().to(device)
+
+#define loss function and optimizers
+criterion=nn.BCELoss()
+generator_optimizer=optim.Adam(generator.parameters(), lr=1e-4)
+discriminator_optimizer=optim.Adam(discriminator.parameters(), lr=1e-4)
+
+#function to generate random noise
+def generate_noise(batch_size, noise_dim):
+    return torch.randn(batch_size, noise_dim,device=device)
+
+#training step for 1 batch
+def train_step(real_images):
+    batch_size=real_images.size(0)
+    #train discriminator
+    noise=generate_noise(batch_size,100)
+    fake_images=generator(noise)
+    real_labels=torch.ones(batch_size,1, device=device)
+    fake_labels=torch.zeros(batch_size,1,device=device)
+    real_images=real_images.to(device)
+
+    #discriminator loss on real and fake images
+    real_output=discriminator(real_images)
+    fake_output=discriminator(fake_images.detach())
+    real_loss=criterion(real_output,real_labels)
+    fake_loss=criterion(fake_output,fake_labels)
+    discriminator_loss=real_loss+fake_loss
+    discriminator_optimizer.zero_grad()
+    discriminator_loss.backward()
+    discriminator_optimizer.step()
+
+    #train generator
+    noise=generate_noise(batch_size,100)
+    fake_images=generator(noise)
+    fake_output=discriminator(fake_images)
+    generator_loss=criterion(fake_output,real_labels)
+    generator_optimizer.zero_grad()
+    generator_loss.backward()
+    generator_optimizer.step()
+    return discriminator_loss.item(), generator_loss.item()
+
+#generate and save images
+def generate_and_save_images(epoch,fixed_noise):
+    fake_images=generator(fixed_noise).cpu().detach()
+    fake_images=(fake_images+1)/2.0
+    fig,axes=plt.subplots(4,4,figsize=(4,4))
+    for i, ax in enumerate(axes.flatten()):
+        ax.imshow(fake_images[i,0,:,:],cmap='gray')
+        ax.axis('off')
+    plt.savefig(f'images at epoch{epoch:04d}.png')
+    plt.show()
+
+#training loop
+EPOCHS=100
+noise_dim=100
+num_examples_to_generate=16
+fixed_noise=generate_noise(num_examples_to_generate,noise_dim)
+
+for epoch in range(EPOCHS):
+    total_d_loss=0
+    total_g_loss=0
+    for real_images, _ in train_loader:
+        d_loss,g_loss=train_step(real_images)
+        total_d_loss+=d_loss
+        total_g_loss +=g_loss
+    #print losses and generate images
+    print(f'Epoch {epoch+1}/{EPOCHS} | DLoss: {total_d_loss/len(train_loader):.4f} | {total_g_loss / len(train_loader):.4f}')
+    if (epoch+1)%10==0:
+        generate_and_save_images(epoch+1, fixed_noise)
+
+
+
+
+Q . 11) AI IMAGE GENERATION USING TEXT PROMPTS
+
+!pip install diffusers
+!pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+!pip install transformers
+!pip install pillow
+!pip install accelerate
+!pip install safetensors
+
+!pip install hf_xet
+!pip install --upgrade ipywidgets
+
+from diffusers import StableDiffusionPipeline
+import torch
+
+model=StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4").to("cuda")
+prompt="A beautiful landscape painting in the style of Van Gogh"
+image=model(prompt).images[0]
+image.show()
+
+import torch
+from diffusers import StableDiffusionPipeline
+from PIL import Image
+
+#Load stable diffusion Inapinting Model in FP16 (speeds up inference)
+
+
+device="cuda" if torch.cuda.is_available() else "cpu"
+pipe=StableDiffusionInpaintPipeline.from_pretrained(
+    "runwayml/stable-diffusion-inpainting",
+    torch_dtype=torch.float16 #FP16 precision for speed
+).to(device)
+
+#Load the input image and mask image
+image=Image.open("images.jpg").convert("RGB") #Load a real world image
+mask_image=Image.open("mask1.jpg").convert("L") #black and white mask (white = missing area)
+
+#Define the text prompt
+
+
+#prompt="a cute cartoon cat"
+prompt="a cute cartoon style"
+
+#Run the inpainting model with reduced inference steps
+result=pipe(
+    prompt=prompt,
+    image=image,
+    mask_image=mask_image,
+    num_inference_steps=30
+).images[0]
+
+#save and show the result
+result.save("inpainted_image.jpg")
+result.show()
+
+print("A-I generated inpainted image saved as " inpainted_image.jpg"")
+
+
+
+
+Q . 12) GRAYSCALE
+
+pip install opencv
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+net=cv2.dnn.readNetFromCaffe('colorization_deploy_v2.prototxt','colorization_release_v2.caffemodel')
+#Load Cluster centers
+pts_in_hull=np.load('pts_in_hull.npy',allow_pickle=True)
+#Populate cluster centers at 1x1 convolutional kernel
+class8=net.getLayerId('class8_ab')
+conv8=net.getLayerId('conv8_313_rh')
+pts_in_hull = pts_in_hull.transpose().reshape(2,313,1,1)
+net.getLayer(class8).blobs=[np.full([1,313], 2.606, np.float32)]
+
+#read the input image
+image=cv2.imread('image1.jpg')
+#convert the grayscale
+gray_image=cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+#convert to rgb
+gray_image_rgb=cv2.cvtColor(gray_image, cv2.COLOR_GRAY2RGB)
+
+#normalize the image
+normalized_image=gray_image_rgb.astype('float32')/255.0
+#convert to image to lab
+lab_image=cv2.cvtColor(normalized_image,cv2.COLOR_RGB2Lab)
+
+#resize the lightness channel to network input size
+resized_l_channel=cv2.resize(lab_image[:,:,0],(224,224))
+resized_l_channel-=50
+
+#predict the a and b channel
+net.setInput(cv2,dnn.blobFromImage(resized_l_channel))
+pred=net.forward()[0,:,:,:].transpose((1,2,0))
+
+#resize the predicted 'ab' image to the same dimension as our input image
+pred_resized=cv2.resize(pred,(image.shape[1], image.shape[0]))
+#concatenate the original l channel with the predicted 'ab' channels
+colorized_image=cv2.cvtColor(colorized_image, cv2.COLOR_Lab2BGR)
+#clip any values that fall outside the range[0,1]
+colorized_image=(255*colorized_image).astype('uint8')
+
+#save the colorized output as a 3 channel png image
+output_filename='colorized_output.png'
+cv2.imwrite(output_filename, colorized_image)
+print(f'Colorized image saved as {output_filename}')
+
+#show both the original grayscale and colorized image using matplotlib
+plt.figure(figsize=(14,7))
+#display original grayscale image
+plt.subplot(1,2,1)
+plt.imshow(gray_image, cmap='gray')
+plt.title('Original grayscale image')
+plt.axis('off')
+
+#display the colorized image
+plt.subplot(1,2,2)
+colorized_image_rgb=cv2.cvtColor(colorized_image, cv2.COLOR_BGR2RGB)
+
+plt.imshow(colorized_image_rgb)
+plt.title('Colorized image')
+plt.axis('off')
+plt.show()
+
+
+
+
+Q . 13) SOUND
+
+import torch,torchaudio
+from transformers import AutoProcessor , MusicgenForConditionalGeneration
+
+MODEL='facebook/musicgen-small'
+processor = AutoProcessor.from_pretrained(MODEL)
+model = MusicgenForConditionalGeneration.from_pretrained(MODEL)
+
+#prompt=warm lofi beat with soft piano and vinyl crackle
+prompt='India classical music performance with sitar and tabla, gentle rythms and melodic improvisation'
+inputs = processor(text=[prompt],return_tensors="pt")
+model.generation_config.do_sample=True
+model.generation_config.guidance_scale=3.0
+model.generation_config.max_new_tokens=50*18
+
+audio=model.generate(**inputs)
+sr=model.config.audio_encoder.sampling_rate
+torchaudio.save('text_music.wav',audio[0].cpu(),sr)
+print('Saved text_music.wav')
+
+# B) Tiny Melody-guided version (condition on your input.wav)
+import torch, torchaudio
+from transformers import AutoProcessor, MusicgenForConditionalGeneration
+
+MODEL = "facebook/musicgen-small"
+processor = AutoProcessor.from_pretrained(MODEL)
+model = MusicgenForConditionalGeneration.from_pretrained(MODEL)
+
+prompt = "emotional strings over gentle ambient pads"
+guide, sr_in = torchaudio.load("input.wav")   # your short seed (mono/stereo)
+sr = model.config.audio_encoder.sampling_rate
+if sr_in != sr: guide = torchaudio.functional.resample(guide, sr_in, sr)
+
+inputs = processor(audio=guide, sampling_rate=sr, text=[prompt], return_tensors="pt")
+model.generation_config.do_sample = True
+model.generation_config.guidance_scale = 3.0
+model.generation_config.max_new_tokens = 50*18   # ~18s
+
+audio = model.generate(**inputs)
+torchaudio.save("melody_music.wav", audio[0].cpu(), sr)
+print("Saved melody_music.wav")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
